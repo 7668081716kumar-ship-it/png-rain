@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PNG रेन इफ़ेक्ट</title>
+<style>
+:root{--bg:#f3f6ee;--card:#fff;--ink:#17301f;--mute:#5d7064;--acc:#1f7a3d;--acc2:#e23b4a;--line:#d5dfd0;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101a13;--card:#18261c;--ink:#e8f1e6;--mute:#9bb0a0;--acc:#5fd08a;--acc2:#ff6b79;--line:#2b3d30}}
+:root[data-theme="dark"]{--bg:#101a13;--card:#18261c;--ink:#e8f1e6;--mute:#9bb0a0;--acc:#5fd08a;--acc2:#ff6b79;--line:#2b3d30}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 "Noto Sans Devanagari","Hind",system-ui,sans-serif;padding:14px;max-width:980px;margin:0 auto}
+h1{font-size:1.35rem;margin:4px 0 12px}
+.stage{background:#000;border-radius:12px;overflow:hidden;aspect-ratio:16/9}
+canvas{width:100%;height:100%;display:block}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 14px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+.btn.main{background:var(--acc);color:#fff;border-color:var(--acc)}
+:root:not([data-theme="light"]) .btn.main{color:#0b1a10}
+.btn:disabled{opacity:.55}
+input[type=file]{display:none}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.ctl label{display:flex;justify-content:space-between;font-size:.92rem}
+.ctl output{color:var(--acc);font-weight:700}
+.ctl input[type=range]{width:100%;accent-color:var(--acc)}
+#msg{color:var(--mute);font-size:.9rem;min-height:1.4em}
+#res{width:100%;border-radius:12px;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<h1>PNG रेन इफ़ेक्ट</h1>
+<div class="stage"><canvas id="cv" width="1920" height="1080"></canvas></div>
+<video id="vid" muted loop playsinline style="display:none"></video>
+
+<div class="row">
+  <label class="btn main" for="fPng">PNG अपलोड करें</label>
+  <label class="btn" for="fBg">बैकग्राउंड वीडियो/फ़ोटो</label>
+  <button class="btn" id="shuf">नया क्रम</button>
+  <button class="btn" id="exp">1080p MP4 एक्सपोर्ट</button>
+</div>
+<input id="fPng" type="file" accept="image/png,image/webp" multiple>
+<input id="fBg" type="file" accept="video/*,image/*">
+<div id="msg">PNG अपलोड करते ही बारिश उसी से शुरू हो जाएगी। एक साथ कई PNG भी चुन सकते हैं।</div>
+
+<div class="panel" id="panel"></div>
+<video id="res" controls playsinline></video>
+<div class="row"><button class="btn main" id="save" style="display:none">वीडियो सेव करें</button></div>
+
+<script>
+const W=1920,H=1080,cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const vid=document.getElementById('vid'),msg=m=>document.getElementById('msg').textContent=m;
+const S={n:60,fall:1,spin:1,min:90,max:300,dur:10};
+const defs=[['n','पीएनजी की संख्या',5,300,1],['fall','गिरने की गति',0.2,3,0.1],['spin','घूमने की गति',0,3,0.1],
+['min','सबसे छोटा आकार (px)',20,300,5],['max','सबसे बड़ा आकार (px)',40,500,5],['dur','एक्सपोर्ट अवधि (सेकंड)',2,60,1]];
+const panel=document.getElementById('panel');
+defs.forEach(([k,t,a,b,s])=>{const d=document.createElement('div');d.className='ctl';
+d.innerHTML=`<label>${t}<output>${S[k]}</output></label><input type="range" min="${a}" max="${b}" step="${s}" value="${S[k]}">`;
+const i=d.querySelector('input'),o=d.querySelector('output');
+i.oninput=()=>{S[k]=+i.value;o.textContent=i.value;if(k==='n')build();};panel.appendChild(d);});
+
+// default PNG (emoji) so rain starts immediately
+function emoji(){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');
+x.font='200px serif';x.textAlign='center';x.textBaseline='middle';x.fillText('🍎',128,140);return c;}
+let imgs=[emoji()],bgImg=null,seed=7;
+const rnd=s=>()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
+let P=[];
+function build(){const r=rnd(seed);P=[];
+for(let i=0;i<S.n;i++){const w=40+r()*140;P.push({x:r(),r:r(),v:140+r()*300,w:(r()<.5?-1:1)*w,a:r()*360,o:r(),sw:r()*30,sf:.4+r()*1.2,k:Math.floor(r()*1e6)});}
+P.sort((a,b)=>a.r-b.r);}
+build();
+document.getElementById('shuf').onclick=()=>{seed=(seed*31+17)>>>0;build();};
+
+document.getElementById('fPng').onchange=async e=>{const L=[];
+for(const f of e.target.files){await new Promise(ok=>{const im=new Image();im.onload=()=>{L.push(im);ok();};im.onerror=ok;im.src=URL.createObjectURL(f);});}
+if(L.length){imgs=L;msg(L.length+' PNG लोड हुईं, बारिश चालू है।');}};
+document.getElementById('fBg').onchange=e=>{const f=e.target.files[0];if(!f)return;const u=URL.createObjectURL(f);
+if(f.type.startsWith('video')){bgImg=null;vid.src=u;vid.play().catch(()=>{});msg('बैकग्राउंड वीडियो लोड हुआ।');}
+else{vid.removeAttribute('src');vid.load();const im=new Image();im.onload=()=>{bgImg=im;};im.src=u;}};
+
+function cover(src,sw,sh){const s=Math.max(W/sw,H/sh),w=sw*s,h=sh*s;ctx.drawImage(src,(W-w)/2,(H-h)/2,w,h);}
+function bg(){if(vid.src&&vid.readyState>=2)cover(vid,vid.videoWidth,vid.videoHeight);
+else if(bgImg)cover(bgImg,bgImg.naturalWidth,bgImg.naturalHeight);
+else{const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#7ec8ee');g.addColorStop(1,'#bfe6a0');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}}
+function draw(t){bg();const lo=Math.min(S.min,S.max),hi=Math.max(S.min,S.max);
+for(const p of P){const im=imgs[p.k%imgs.length],iw=im.naturalWidth||im.width,ih=im.naturalHeight||im.height;
+const sz=lo+p.r*(hi-lo),h=sz*ih/iw,span=H+sz*1.8;
+const y=((p.o*span+t*p.v*S.fall)%span)-sz*0.9;
+const x=p.x*W+Math.sin(t*p.sf+p.a)*p.sw;
+ctx.save();ctx.translate(x,y);ctx.rotate((p.a+t*p.w*S.spin)*Math.PI/180);ctx.drawImage(im,-sz/2,-h/2,sz,h);ctx.restore();}}
+
+let t0=performance.now(),exp=null;
+function loop(now){const t=exp?(now-exp.t0)/1000:(now-t0)/1000;draw(t);
+if(exp){const pr=Math.min(1,t/S.dur);msg('रिकॉर्ड हो रहा है… '+Math.round(pr*100)+'%');if(t>=S.dur){const r=exp.rec;exp=null;r.stop();}}
+requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+
+let blob=null,ext='mp4';
+const res=document.getElementById('res'),saveB=document.getElementById('save'),expB=document.getElementById('exp');
+expB.onclick=()=>{if(exp)return;
+const types=['video/mp4;codecs=avc1.640028','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+const mt=types.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t));
+if(!mt){msg('इस ब्राउज़र में वीडियो रिकॉर्डिंग उपलब्ध नहीं है। Chrome या Safari में खोलें।');return;}
+ext=mt.includes('mp4')?'mp4':'webm';
+const st=cv.captureStream(30);
+if(vid.src){try{const AC=window.AudioContext||window.webkitAudioContext;
+if(!vid._ac){vid._ac=new AC();vid._d=vid._ac.createMediaStreamDestination();vid._ac.createMediaElementSource(vid).connect(vid._d);}
+vid.muted=false;vid._d.stream.getAudioTracks().forEach(a=>st.addTrack(a));}catch(e){}}
+const rec=new MediaRecorder(st,{mimeType:mt,videoBitsPerSecond:14e6}),ch=[];
+rec.ondataavailable=e=>e.data.size&&ch.push(e.data);
+rec.onstop=()=>{blob=new Blob(ch,{type:mt.split(';')[0]});res.src=URL.createObjectURL(blob);res.style.display='block';
+saveB.style.display='inline-block';expB.disabled=false;msg('तैयार! नीचे देखें और “वीडियो सेव करें” दबाएँ। फ़ॉर्मैट: '+ext.toUpperCase()+' 1920×1080');};
+expB.disabled=true;saveB.style.display='none';res.style.display='none';
+if(vid.src){vid.currentTime=0;vid.play().catch(()=>{});}
+rec.start(500);exp={rec,t0:performance.now()};};
+
+saveB.onclick=async()=>{if(!blob)return;
+if(window.Android){try{msg('सेव हो रहा है…');Android.beginSave('png-rain-'+Date.now()+'.'+ext,blob.type);
+const CH=1<<20;for(let o=0;o<blob.size;o+=CH){const b=await new Promise(ok=>{const r=new FileReader();r.onload=()=>ok(r.result.split(',')[1]);r.readAsDataURL(blob.slice(o,o+CH));});Android.appendSave(b);}
+Android.endSave();msg('गैलरी में सेव हो गया (Movies/PNGRain)।');}catch(e){msg('सेव नहीं हो पाया।');}return;}
+msg('सेव उपलब्ध नहीं है।');};
+</script>
+</body>
+</html>
